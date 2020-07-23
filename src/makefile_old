@@ -1,0 +1,180 @@
+# -----------------------------------------------------------
+#
+# Makefile for building code
+# Parallel, Preconditioner, Overset grid: ppO
+#	code name: ppod (DES), ppos(S-A), ppokw(k-w), ...
+# -----------------------------------------------------------
+
+# generic variables
+#
+SRC		= .
+EXE 		= ce39
+SHELL		= /bin/sh
+
+# MPI defaults 
+# 
+ MPI_HOME   	= /opt/mpich-mx.pgi/bin
+#/opt/mpich-mx
+ MPI_LDLIBS 	= -lfmpich -lmpich
+
+# TeamHPC Portland Group Compiler (CYCLADES)
+#
+F90		= mpif90
+F90FLAGS	= -O3 
+
+LIBS		= $(MPI_LDLIBS) /usr/local/lapack/LAPACK/liblapack.a 
+
+
+.SUFFIXES:
+
+.SUFFIXES: .F90 .o
+.SUFFIXES: .f .o
+
+.f.o:	
+	$(F90) -c $(F90FLAGS) $<
+
+.F90.o:
+	$(F90) -c $(F90FLAGS) $<
+
+# Implicit rules for making f90 files
+# 
+# %.o: 	%.F90			
+# 	$(F90) -c $(F90FLAGS) $< -o $@
+
+gtce_cfd:	$(EXE)
+		@echo ''
+		@echo $(EXE) program is now up to date.
+		@echo ''
+
+# Module list and compile instructions
+#
+MODS	=	precision.o global.o global_param.o global_app.o \
+		global_mpi.o global_osg.o checksum.o wf_mpi.o #rfg.o rfg_inlet.o
+
+precision.o : 	precision.F90 
+
+global.o : 	global.F90 precision.o 
+
+global_app.o : 	global_app.F90 precision.o 
+
+global_mpi.o : 	global_mpi.F90 precision.o 
+
+global_param.o : global_param.F90 precision.o 
+
+global_osg.o : 	global_osg.F90 precision.o 
+
+checksum.o : 	checksum.F90 global_mpi.o global.o precision.o 
+
+wf_mpi.o : 	wf_mpi.F90 global.o global_param.o global_mpi.o precision.o 
+
+#rfg.o : 	rfg.F90 precision.o 
+
+#rfg_inlet.o : 	rfg_inlet.F90 global_mpi.o rfg.o global.o precision.o 
+
+
+# Code compile statements
+# 
+
+main.o : 	main.F90 global_param.o global.o global_mpi.o checksum.o
+
+init.o : 	init.F90 checksum.o global_mpi.o global_app.o global_param.o \
+		global.o checksum.o
+
+mg_driver.o : 	mg_driver.F90 global_mpi.o global_param.o global.o \
+		global_osg.o global_app.o wf_mpi.o
+
+mg_nlevel.o :	mg_nlevel.F90 global_mpi.o global_param.o global.o
+
+mg_inject.o :	mg_inject.F90 global_mpi.o global.o 
+
+mg_metrics.o :	mg_metrics.F90 \
+		global_mpi.o global_app.o global_param.o global.o 
+
+solver_daf.o : 	solver_daf.F90 \
+		global_mpi.o global_app.o global_param.o checksum.o
+
+bcond_fm.o : 	bcond_fm.F90 global_app.o global_mpi.o
+
+mg_brhs.o :     mg_brhs.F90 global_mpi.o global_param.o checksum.o
+
+nonreflect_ibc.o :      nonreflect_ibc.F90 global_mpi.o global_param.o
+
+#kw_eddy.o : 	kw_eddy.F90 \
+#		global_mpi.o global_app.o global_param.o checksum.o
+
+des_eddy.o : 	des_eddy.F90 \
+		global_mpi.o global_app.o global_param.o checksum.o
+
+rsmooth.o : 	rsmooth.F90 rs_sweep.F90 global_mpi.o global_app.o \
+		global_param.o
+
+sgtsv.o :       sgtsv.f
+
+xerbla.o :      xerbla.f
+
+OBJS	= \
+	main.o \
+	init.o \
+	mg_nlevel.o \
+	mg_driver.o \
+	mg_inject.o \
+	mg_metrics.o \
+	mg_brhs.o \
+	nonreflect_ibc.o \
+	solver_daf.o \
+	bcond_fm.o \
+	des_eddy.o \
+        sgtsv.o \
+        xerbla.o \
+	rsmooth.o
+
+
+$(EXE):	$(MODS) $(OBJS)
+	$(F90) $(F90FLAGS) -o $@ $(MODS) $(OBJS) $(LIBS)
+	mv ./$(EXE) ..
+
+
+clean:
+	rm -f $(EXE) *.o *.mod *.il
+
+# Utility programs
+# 
+mktec:	mktec.F90 
+	rm -f mktec
+	$(F90) -o $@ $(CFLAGS2) mktec.F90 $(TEC90HOME)/lib/tecio.a
+
+mktec_inlet:	mktec_inlet.F90 
+	rm -f mktec_inlet
+	$(F90) -o $@ $(CFLAGS2) mktec_inlet.F90 $(TEC90HOME)/lib/tecio.a
+
+mktec2:	mktec-2.F90 
+	rm -f mktec2
+	$(F90) -o $@ $(CFLAGS2) mktec-2.F90 $(TEC90HOME)/lib/tecio.a
+
+mktec-hn:	mktec-hn.F90 
+	rm -f mktec-hn
+	$(F90) -o $@ $(CFLAGS2) mktec-hn.F90 $(TEC90HOME)/lib/tecio.a
+
+restart:
+	rm -f solu
+	rm -f conver
+	rm -f filestat
+	rm -f perf_monitor
+	rm -f history
+	cp -f filestat-restart filestat
+
+andclean:
+	rm -f debug $(EXE) *.o 
+	rm -f solu
+	rm -f time_history
+	rm -f conver
+	rm -f filestat
+
+archive:
+	tar cvf $(EXE)_`date +%Y_%m_%d_%H%M`.tar	\
+				*.F90   	        \
+				../ind3dmg.dat   \
+				makefile
+	gzip $(EXE)*.tar
+
+
